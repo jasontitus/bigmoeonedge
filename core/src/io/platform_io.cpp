@@ -30,6 +30,14 @@
 #if defined(__ANDROID__)
 #include <android/hardware_buffer.h> // reclaim-exempt allocation; see pinned_alloc
 #endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#include <mach/mach.h>
+#include <sys/sysctl.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h> // os_proc_available_memory: the app's remaining jetsam headroom
+#endif
+#endif
 #endif
 
 namespace bmoe::pio {
@@ -163,7 +171,17 @@ bool fd_ok(fd_t fd) {
 }
 
 fd_t open_read(const char * path, bool direct) {
+#if defined(__APPLE__)
+    // Darwin has no O_DIRECT; its cache bypass is F_NOCACHE, set per-fd after the open. Alignment
+    // is not required the way O_DIRECT demands it, but the callers' aligned windows stay optimal —
+    // sub-block reads through an F_NOCACHE fd pay a read-modify cycle. Failure to set the flag
+    // degrades to buffered I/O, which is exactly the fallback the callers already handle.
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd >= 0 && direct) fcntl(fd, F_NOCACHE, 1);
+    return fd;
+#else
     return open(path, O_RDONLY | O_CLOEXEC | (direct ? O_DIRECT : 0));
+#endif
 }
 
 void close_fd(fd_t fd) {
@@ -202,11 +220,29 @@ void * vm_reserve(size_t sz) {
     void * p = mmap(nullptr, sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     return p == MAP_FAILED ? nullptr : p;
 }
-bool vm_commit(void * /*p*/, size_t /*sz*/) {
+bool vm_commit(void * p, size_t sz) {
+#if defined(__APPLE__)
+    // Re-arm pages a previous vm_evict marked MADV_FREE_REUSABLE (below): REUSE restores their
+    // footprint accounting before the cache writes into them again, which Apple requires of the
+    // REUSABLE/REUSE pairing. On pages never marked reusable it is a no-op, so a fresh reservation
+    // commits on first touch exactly as before.
+    if (sz) madvise(p, sz, MADV_FREE_REUSE);
+#else
+    (void) p;
+    (void) sz;
+#endif
     return true; // POSIX commits on first touch
 }
 void vm_evict(void * p, size_t sz) {
-    if (sz) madvise(p, sz, MADV_DONTNEED);
+    if (!sz) return;
+#if defined(__APPLE__)
+    // MADV_DONTNEED does not lower phys_footprint on Darwin — and phys_footprint is the number
+    // jetsam kills against, so an eviction that does not move it frees nothing that matters on
+    // iOS. MADV_FREE_REUSABLE is the call that genuinely hands dirty anonymous pages back;
+    // vm_commit pairs it with MADV_FREE_REUSE before the range is written again.
+    if (madvise(p, sz, MADV_FREE_REUSABLE) == 0) return;
+#endif
+    madvise(p, sz, MADV_DONTNEED);
 }
 void vm_release(void * p, size_t sz) {
     if (p) munmap(p, sz);
@@ -238,7 +274,34 @@ bool vm_resident_sample(const void * p, size_t sz, size_t * sampled, size_t * re
     return true;
 }
 
+#if defined(__APPLE__)
+// Host-wide VM statistics, shared by mem_available_bytes and device_memory. The host port is
+// cached: mach_host_self() mints a send right per call, and these run per token in the telemetry.
+namespace {
+bool host_vm_stats(vm_statistics64_data_t * vs) {
+    static const mach_port_t host = mach_host_self();
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    return host_statistics64(host, HOST_VM_INFO64, (host_info64_t) vs, &count) == KERN_SUCCESS;
+}
+} // namespace
+#endif
+
 uint64_t mem_available_bytes() {
+#if defined(__APPLE__)
+#if TARGET_OS_IPHONE
+    // On iOS the binding constraint is not device RAM but the app's jetsam allowance, and
+    // os_proc_available_memory reports exactly the remaining headroom under it — the honest
+    // analog of MemAvailable for sizing a cache that must not get the app killed.
+    const size_t jetsam_headroom = os_proc_available_memory();
+    if (jetsam_headroom > 0) return (uint64_t) jetsam_headroom;
+#endif
+    // macOS (and iOS fallback): free + inactive + purgeable are the pages the kernel can hand out
+    // without swapping — the closest Mach equivalent of MemAvailable.
+    vm_statistics64_data_t vs;
+    if (host_vm_stats(&vs))
+        return ((uint64_t) vs.free_count + vs.inactive_count + vs.purgeable_count) * (uint64_t) vm_page();
+    return 0;
+#else
     // Linux/Android: MemAvailable is the kernel's own estimate of what can be allocated without
     // swapping (it accounts for reclaimable page cache), which is exactly the sizing signal we want.
     if (FILE * f = std::fopen("/proc/meminfo", "re")) {
@@ -252,14 +315,15 @@ uint64_t mem_available_bytes() {
         }
         std::fclose(f);
     }
-    // Fallback where /proc is absent (e.g. macOS): free physical pages. An underestimate — it omits
-    // reclaimable cache — but non-zero and safe to size a cache against.
+    // Fallback where /proc is absent (other BSDs): free physical pages. An underestimate — it
+    // omits reclaimable cache — but non-zero and safe to size a cache against.
 #if defined(_SC_AVPHYS_PAGES)
     const long pages = sysconf(_SC_AVPHYS_PAGES);
     const long ps = sysconf(_SC_PAGESIZE);
     if (pages > 0 && ps > 0) return (uint64_t) pages * (uint64_t) ps;
 #endif
     return 0;
+#endif
 }
 
 uint64_t major_faults() {
@@ -286,6 +350,7 @@ size_t fault_bytes() {
     return vm_page();
 }
 
+#if !defined(__APPLE__)
 // Scan a "Key: <n> kB" file for the keys we want in one pass, rather than one open per field.
 namespace {
 bool scan_kb_file(const char * path, const char * const * keys, uint64_t * out, int n) {
@@ -310,8 +375,24 @@ bool scan_kb_file(const char * path, const char * const * keys, uint64_t * out, 
     return found > 0;
 }
 } // namespace
+#endif
 
 bool process_memory(ProcessMemory * out) {
+#if defined(__APPLE__)
+    // TASK_VM_INFO. phys_footprint is reported as rss because it is the number that decides the
+    // process's fate on Apple platforms — jetsam enforces it, not resident_size. The anon/file
+    // split the telemetry reads maps to internal (dirty anon — the expert cache and anon dense
+    // weights) vs external (file-backed — the mmap'd model), and compressed stands in for swap:
+    // the memory compressor is where Darwin puts dirty anon under pressure, as zram is on Android.
+    task_vm_info_data_t vi;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t) &vi, &count) != KERN_SUCCESS) return false;
+    out->rss_bytes = (uint64_t) vi.phys_footprint;
+    out->rss_anon_bytes = (uint64_t) vi.internal;
+    out->rss_file_bytes = (uint64_t) vi.external;
+    out->swap_bytes = (uint64_t) vi.compressed;
+    return true;
+#else
     static const char * const keys[] = {"VmRSS", "RssAnon", "RssFile", "VmSwap"};
     uint64_t v[4] = {0, 0, 0, 0};
     if (!scan_kb_file("/proc/self/status", keys, v, 4)) return false;
@@ -320,9 +401,25 @@ bool process_memory(ProcessMemory * out) {
     out->rss_file_bytes = v[2];
     out->swap_bytes = v[3];
     return true;
+#endif
 }
 
 bool device_memory(DeviceMemory * out) {
+#if defined(__APPLE__)
+    vm_statistics64_data_t vs;
+    if (!host_vm_stats(&vs)) return false;
+    const uint64_t page = (uint64_t) vm_page();
+    out->available_bytes = ((uint64_t) vs.free_count + vs.inactive_count + vs.purgeable_count) * page;
+    out->free_bytes = (uint64_t) vs.free_count * page;
+    // macOS reports swap through sysctl; iOS has no app swap (the compressor stands in), so the
+    // sysctl failing or reporting zero is itself the truthful answer there.
+    out->swap_free_bytes = 0;
+    struct xsw_usage sw;
+    size_t len = sizeof(sw);
+    int mib[2] = {CTL_VM, VM_SWAPUSAGE};
+    if (sysctl(mib, 2, &sw, &len, nullptr, 0) == 0) out->swap_free_bytes = (uint64_t) sw.xsu_avail;
+    return true;
+#else
     static const char * const keys[] = {"MemAvailable", "MemFree", "SwapFree"};
     uint64_t v[3] = {0, 0, 0};
     if (!scan_kb_file("/proc/meminfo", keys, v, 3)) return false;
@@ -330,6 +427,7 @@ bool device_memory(DeviceMemory * out) {
     out->free_bytes = v[1];
     out->swap_free_bytes = v[2];
     return true;
+#endif
 }
 
 bool file_mapped_regions(const char * basename, std::vector<MappedRegion> & out) {

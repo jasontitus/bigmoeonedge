@@ -61,7 +61,7 @@ struct MoeStreamConfig {
     // Clamped to [1, io_threads_max]. 4 is the measured sweet spot on UFS4 phones.
     int io_threads = 4;
 
-    bool o_direct = true;     // bypass the page cache (O_DIRECT / FILE_FLAG_NO_BUFFERING)
+    bool o_direct = true;     // bypass the page cache (O_DIRECT / FILE_FLAG_NO_BUFFERING / F_NOCACHE)
     bool load_all = false;    // debug/A-B: load ALL experts each token (full-sweep baseline)
     bool force_cache = false; // allow a cache_mb in the pathological band (tests/experiments)
 

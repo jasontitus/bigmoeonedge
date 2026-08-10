@@ -12,7 +12,9 @@
 //     eviction — so a huge reserved span costs RAM only for resident experts.
 //
 // POSIX commits lazily (commit is a no-op, MADV_DONTNEED reclaims); Windows commits and
-// decommits explicitly. Both honour a page-granularity that the caller rounds to.
+// decommits explicitly; Darwin pairs MADV_FREE_REUSABLE on evict with MADV_FREE_REUSE on
+// commit, because only that pairing moves phys_footprint — the accounting jetsam enforces
+// on iOS. All honour a page-granularity that the caller rounds to.
 #pragma once
 
 #include <cstddef>
