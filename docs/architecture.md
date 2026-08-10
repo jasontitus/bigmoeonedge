@@ -33,7 +33,7 @@ core/
     metrics/    csv_metrics_sink, route_trace_sink, decode_trace_sink
 third_party/
   llama.cpp     upstream submodule; public-API consumer, plus one optional overlap hook
-tests/          byte-identity gates
+tests/          byte-identity gates; swift-abi/ — a Swift smoke gate over the C ABI
 examples/android an APK that drives bmoe-cli via ProcessBuilder
 examples/ios     a SwiftUI scaffold linking the engine statically through the C ABI
                  (iOS cannot spawn processes; scripts/build-ios.sh packages the engine)

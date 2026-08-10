@@ -30,6 +30,14 @@ Semantic Versioning.
   entitlements a >RAM model needs on an iPhone. Compiles on a Mac; **not yet validated on a
   device** — what is proven (host gates, macOS CI) and what is not (the on-device jetsam budget)
   is stated in its README.
+- **A Swift smoke gate for the C ABI** (`tests/swift-abi/`, run manually via its `run.sh`; needs a
+  Swift toolchain, so it is not wired into ctest). It imports `bmoe_c.h` through the same
+  modulemap-and-Clang-importer path the iOS app uses and drives a streamed generation on the tiny
+  gate model, asserting the bridging the app relies on: struct and enum fields round-trip, token
+  callbacks arrive in order through the capture-free trampoline, the concatenated `piece` strings
+  equal the final text, stats add up, and a reused session repeats a greedy prompt byte-for-byte.
+  Verified on the Linux host with Swift 6.1 — the UI layer still compiles only on a Mac, but the
+  Swift↔engine seam itself is now exercised without one.
 
 ## [0.19.0] - 2026-08-01
 

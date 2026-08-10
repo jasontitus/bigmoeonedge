@@ -1,0 +1,6 @@
+// Exposes the C ABI to Swift exactly the way the iOS app consumes it — same header, same Clang
+// importer. The path is relative to this file, so the module works from any checkout location.
+module bmoe_c {
+    header "../../core/include/bmoe/bmoe_c.h"
+    export *
+}
