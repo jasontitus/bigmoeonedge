@@ -365,8 +365,11 @@ The model must live on a real filesystem (on Android `/data/local/tmp/...`, not 
 Platform status: Linux is exercised by CI (build + gates) and Windows is where the
 [desktop numbers](#desktop) were measured. On Windows, build with CMake directly (Visual Studio
 Build Tools); the script above is bash, and MSVC puts the binary in `build\cli\Release\bmoe-cli.exe`.
-macOS builds from the same sources (the platform branches exist) but is not validated, and it has
-no O_DIRECT, so direct reads fall back to buffered I/O there.
+macOS builds from the same sources and CI runs the byte-identity gates on Apple Silicon; Darwin has
+no O_DIRECT, so direct reads use its `F_NOCACHE` equivalent. iOS shares those same engine branches:
+`scripts/build-ios.sh` packages the engine as a static xcframework behind a C ABI, and
+[`examples/ios`](examples/ios) is a SwiftUI scaffold over it — experimental, compiled on a Mac and
+not yet validated on a device.
 
 ### Android
 

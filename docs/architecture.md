@@ -28,11 +28,15 @@ core/
                 runtime — the one-shot run() wrapper over a Session
                 chat_parse — reasoning-parser wiring (llama.cpp `common`, see seam.md)
                 thinking_control — how "thinking off" is honoured, probed per model
+                c_api — the C ABI (bmoe/bmoe_c.h) over Session, for embedders that
+                cannot consume C++ (Swift in examples/ios)
     metrics/    csv_metrics_sink, route_trace_sink, decode_trace_sink
 third_party/
   llama.cpp     upstream submodule; public-API consumer, plus one optional overlap hook
 tests/          byte-identity gates
 examples/android an APK that drives bmoe-cli via ProcessBuilder
+examples/ios     a SwiftUI scaffold linking the engine statically through the C ABI
+                 (iOS cannot spawn processes; scripts/build-ios.sh packages the engine)
 ```
 
 Dependencies point inward: adapters depend on the port headers, the CLI composes them.

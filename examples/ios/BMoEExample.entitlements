@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Raise the jetsam limit above the conservative default. Requires a paid developer team;
+         what it actually grants is device-dependent and the app must still budget within it. -->
+    <key>com.apple.developer.kernel.increased-memory-limit</key>
+    <true/>
+    <!-- A >RAM model is tens of GB of *address space* the moment it is mmapped; without this the
+         mapping itself fails long before any page is resident. -->
+    <key>com.apple.developer.kernel.extended-virtual-addressing</key>
+    <true/>
+</dict>
+</plist>

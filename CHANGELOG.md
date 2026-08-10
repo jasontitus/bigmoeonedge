@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 Semantic Versioning.
 
+## [0.20.0] - 2026-08-10
+
+### Added
+- **The engine builds and is gated on Apple platforms.** `platform_io` gains real Darwin
+  implementations where it previously fell back: direct reads via `F_NOCACHE` (Darwin has no
+  O_DIRECT); process and device memory telemetry over Mach (`TASK_VM_INFO`, `host_statistics64`),
+  reporting `phys_footprint` as rss because that is the number jetsam enforces; cache auto-sizing
+  from `os_proc_available_memory` on iOS — the app's remaining jetsam headroom, the honest analog
+  of MemAvailable there; and cache eviction that pairs `MADV_FREE_REUSABLE`/`MADV_FREE_REUSE`,
+  because `MADV_DONTNEED` does not lower the footprint jetsam kills against on Darwin. A macOS
+  (Apple Silicon) CI job now builds these branches and runs the byte-identity gates on them on
+  every PR — the closest thing to an iOS engine gate that runs without a device.
+- **A C ABI over Session** ([`bmoe/bmoe_c.h`](core/include/bmoe/bmoe_c.h)): open /
+  generate-with-token-callback / cancel / set-cache-budget / close, for embedders that cannot
+  consume C++ — first among them Swift. A translation layer and nothing else: it reaches the
+  engine through the same RunConfig → SessionConfig path the CLI takes, and its defaults are read
+  from the C++ config structs rather than restated, so the two surfaces cannot drift.
+- **iOS packaging and an example app scaffold.** `scripts/build-ios.sh` (macOS + Xcode) builds the
+  engine CPU-only as a static `bmoe.xcframework` — `GGML_METAL` stays off because the streaming
+  seam rebinds expert tensors in host memory. [`examples/ios`](examples/ios) is a minimal SwiftUI
+  chat app over the C ABI: models arrive via Finder file sharing, tokens stream into the UI with
+  live flash/cache telemetry, a memory-pressure handler lowers the cache budget between
+  generations, and the app carries the increased-memory-limit and extended-virtual-addressing
+  entitlements a >RAM model needs on an iPhone. Compiles on a Mac; **not yet validated on a
+  device** — what is proven (host gates, macOS CI) and what is not (the on-device jetsam budget)
+  is stated in its README.
+
 ## [0.19.0] - 2026-08-01
 
 ### Added

@@ -1,0 +1,36 @@
+# XcodeGen spec — `xcodegen generate` produces BMoEExample.xcodeproj (which stays untracked;
+# the spec is the source of truth). See README.md for the build order: the xcframework must
+# exist first (scripts/build-ios.sh).
+name: BMoEExample
+options:
+  bundleIdPrefix: io.bigmoeonedge
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+targets:
+  BMoEExample:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/BridgingHeader.h
+        CODE_SIGN_ENTITLEMENTS: BMoEExample.entitlements
+        # The engine is C++ behind a C ABI; the app links its runtime.
+        OTHER_LDFLAGS: ["-lc++"]
+    dependencies:
+      # Static engine slice built by scripts/build-ios.sh. Its Headers (bmoe_c.h) are exposed
+      # to the bridging header by Xcode's xcframework processing.
+      - framework: ../../dist/ios/bmoe.xcframework
+        embed: false
+      - sdk: Accelerate.framework # ggml's BLAS on Apple platforms
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: BMoE Example
+        UILaunchScreen: {}
+        # Both make the Documents directory reachable from Finder / the Files app — the whole
+        # model-transfer story, since the app ships no downloader.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true

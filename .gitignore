@@ -24,6 +24,13 @@ cmake-build-*/
 /*.csv
 /NEXT-SESSION-PROMPT.md
 
+# iOS — everything generated: the xcframework by scripts/build-ios.sh, the project and
+# Info.plist by `xcodegen generate` (project.yml is the tracked source of truth)
+/build-ios-*/
+/dist/
+examples/ios/BMoEExample.xcodeproj/
+examples/ios/Info.plist
+
 # Android
 examples/android/.gradle/
 examples/android/build/
